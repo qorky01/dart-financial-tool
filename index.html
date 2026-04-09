@@ -12,11 +12,18 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Noto Sans 
 .header h1 { font-size: 22px; font-weight: 600; color: #1a1a1a; }
 .header p { font-size: 14px; color: #666; margin-top: 4px; }
 .card { background: #fff; border-radius: 12px; padding: 1.5rem; box-shadow: 0 1px 4px rgba(0,0,0,0.08); margin-bottom: 1rem; }
+.search-wrap { position: relative; }
 .search-row { display: flex; gap: 8px; }
 .search-row input { flex: 1; padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; outline: none; transition: border-color 0.2s; }
 .search-row input:focus { border-color: #3b7dd8; }
 .search-row button { padding: 10px 20px; background: #3b7dd8; color: #fff; border: none; border-radius: 8px; font-size: 15px; cursor: pointer; white-space: nowrap; }
 .search-row button:hover { background: #2d68c0; }
+.autocomplete { position: absolute; top: 44px; left: 0; right: 0; background: #fff; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.12); z-index: 100; overflow: hidden; }
+.ac-item { padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+.ac-item:last-child { border-bottom: none; }
+.ac-item:hover { background: #f7f9ff; }
+.ac-item .ac-name { font-weight: 500; }
+.ac-item .ac-stock { font-size: 12px; color: #888; background: #f0f0f0; padding: 2px 7px; border-radius: 8px; }
 .corp-list { margin-top: 1rem; border: 1px solid #eee; border-radius: 8px; overflow: hidden; }
 .corp-item { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; border-bottom: 1px solid #f0f0f0; background: #fff; transition: background 0.15s; }
 .corp-item:last-child { border-bottom: none; }
@@ -48,8 +55,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Noto Sans 
 .back-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: #888; cursor: pointer; margin-bottom: 1rem; }
 .back-btn:hover { color: #333; }
 .error-msg { color: #c0392b; font-size: 13px; padding: 10px 0; }
-.debug-box { background: #f8f8f8; border: 1px solid #eee; border-radius: 6px; padding: 10px 12px; font-size: 11px; color: #888; font-family: monospace; margin-top: 8px; word-break: break-all; }
-.spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid #ddd; border-top-color: #3b7dd8; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 6px; }
+.loading-bar { font-size: 13px; color: #888; margin-top: 10px; }
+.spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #ddd; border-top-color: #3b7dd8; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 6px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 480px) {
   .metrics-grid { grid-template-columns: 1fr 1fr; }
@@ -61,15 +68,19 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Noto Sans 
 <div class="wrap">
   <div class="header">
     <h1>📊 DART 재무정보 조회</h1>
-    <p>기업명을 검색하여 재무 요약 정보를 확인하세요</p>
+    <p>기업명을 입력하면 자동완성으로 검색됩니다</p>
   </div>
 
   <div id="view-search">
     <div class="card">
-      <div class="search-row">
-        <input type="text" id="search-input" placeholder="기업명 입력 (예: 삼성전자, 현대차)" />
-        <button onclick="searchCorp()">검색</button>
+      <div class="search-wrap">
+        <div class="search-row">
+          <input type="text" id="search-input" placeholder="기업 목록 로딩 중..." autocomplete="off" disabled />
+          <button onclick="doSearch()">검색</button>
+        </div>
+        <div id="autocomplete" class="autocomplete" style="display:none"></div>
       </div>
+      <div id="loading-bar" class="loading-bar"><span class="spinner"></span>기업 목록 로딩 중...</div>
       <div id="search-result"></div>
     </div>
   </div>
@@ -90,51 +101,86 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Noto Sans 
 <script>
 const API_KEY = '43290be06d0cc2ce9323fceee47d4d12274e56b0';
 const PROXY_BASE = 'https://dart-proxy.qorky01.workers.dev/';
-let currentCorp = null;
-let availableYears = [];
 
-document.getElementById('search-input').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') searchCorp();
+var corpList = null;
+var currentCorp = null;
+var availableYears = [];
+var acTimer = null;
+
+window.addEventListener('load', function() { loadCorpList(); });
+
+async function loadCorpList() {
+  try {
+    var res = await fetch('./corpCode.json');
+    corpList = await res.json();
+    document.getElementById('loading-bar').style.display = 'none';
+    var input = document.getElementById('search-input');
+    input.placeholder = '기업명 입력 (예: 삼성, 현대, LG)';
+    input.disabled = false;
+    input.focus();
+  } catch(e) {
+    document.getElementById('loading-bar').innerHTML = '<span style="color:#c0392b">기업 목록 로딩 실패. corpCode.json 파일을 확인해주세요.</span>';
+  }
+}
+
+function searchCorps(q) {
+  if (!corpList || !q) return [];
+  var results = [];
+  for (var i = 0; i < corpList.length; i++) {
+    if (corpList[i].n.includes(q)) {
+      results.push(corpList[i]);
+      if (results.length >= 12) break;
+    }
+  }
+  return results;
+}
+
+document.getElementById('search-input').addEventListener('input', function() {
+  clearTimeout(acTimer);
+  var q = this.value.trim();
+  if (!q) { hideAc(); return; }
+  acTimer = setTimeout(function() { showAc(q); }, 120);
 });
 
-async function dartFetch(apiUrl) {
-  const proxyUrl = PROXY_BASE + '?url=' + encodeURIComponent(apiUrl);
-  const res = await fetch(proxyUrl);
-  const text = await res.text();
-  try {
-    return JSON.parse(text);
-  } catch (e) {
-    throw new Error('파싱 오류 [' + res.status + ']: ' + text.slice(0, 150));
-  }
+document.getElementById('search-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') { hideAc(); doSearch(); }
+  if (e.key === 'Escape') hideAc();
+});
+
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.search-wrap')) hideAc();
+});
+
+function showAc(q) {
+  var list = searchCorps(q);
+  var el = document.getElementById('autocomplete');
+  if (!list.length) { el.style.display = 'none'; return; }
+  el.innerHTML = list.map(function(c) {
+    var hn = escHtml(c.n).replace(q, '<strong style="color:#3b7dd8">' + q + '</strong>');
+    return '<div class="ac-item" onclick="selectCorp(\'' + c.c + '\',\'' + escHtml(c.n) + '\',\'' + (c.s||'') + '\')">'
+      + '<span class="ac-name">' + hn + '</span>'
+      + '<span class="ac-stock">' + (c.s ? c.s : '비상장') + '</span>'
+      + '</div>';
+  }).join('');
+  el.style.display = 'block';
 }
 
-async function searchCorp() {
-  const q = document.getElementById('search-input').value.trim();
-  if (!q) return;
-  const el = document.getElementById('search-result');
-  el.innerHTML = '<div class="state"><span class="spinner"></span>검색 중...</div>';
-  try {
-    const apiUrl = 'https://opendart.fss.or.kr/api/company.json?crtfc_key=' + API_KEY + '&corp_name=' + encodeURIComponent(q);
-    const data = await dartFetch(apiUrl);
-    if (data.status !== '000') {
-      el.innerHTML = '<div class="error-msg">검색 실패: ' + (data.message || data.status) + '</div>';
-      return;
-    }
-    if (data.status !== '000') {
-  el.innerHTML = '<div class="error-msg">검색 실패: ' + (data.message || data.status) + '</div>';
-  return;
+function hideAc() {
+  document.getElementById('autocomplete').style.display = 'none';
 }
-const list = [{ code: data.corp_code, name: data.corp_name, stock: data.stock_code }];
-    if (!list.length) { el.innerHTML = '<div class="state">검색 결과가 없습니다</div>'; return; }
-    el.innerHTML = '<div class="corp-list">' + list.map(function(c) {
-      return '<div class="corp-item" onclick="selectCorp(\'' + c.code + '\',\'' + escHtml(c.name) + '\',\'' + (c.stock || '') + '\')">'
-        + '<span class="corp-name">' + escHtml(c.name) + '</span>'
-        + '<span class="corp-meta">' + (c.stock ? c.stock : '비상장') + '</span></div>';
-    }).join('') + '</div>';
-  } catch (e) {
-    el.innerHTML = '<div class="error-msg">오류: ' + e.message + '</div>'
-      + '<div class="debug-box">요청 주소: ' + PROXY_BASE + '</div>';
-  }
+
+function doSearch() {
+  var q = document.getElementById('search-input').value.trim();
+  if (!q || !corpList) return;
+  var list = searchCorps(q);
+  var el = document.getElementById('search-result');
+  if (!list.length) { el.innerHTML = '<div class="state">검색 결과가 없습니다</div>'; return; }
+  el.innerHTML = '<div class="corp-list">' + list.map(function(c) {
+    return '<div class="corp-item" onclick="selectCorp(\'' + c.c + '\',\'' + escHtml(c.n) + '\',\'' + (c.s||'') + '\')">'
+      + '<span class="corp-name">' + escHtml(c.n) + '</span>'
+      + '<span class="corp-meta">' + (c.s ? c.s : '비상장') + '</span>'
+      + '</div>';
+  }).join('') + '</div>';
 }
 
 function escHtml(s) {
@@ -144,6 +190,7 @@ function escHtml(s) {
 }
 
 function selectCorp(code, name, stock) {
+  hideAc();
   currentCorp = { code: code, name: name, stock: stock };
   document.getElementById('view-search').style.display = 'none';
   document.getElementById('view-detail').style.display = 'block';
@@ -152,14 +199,14 @@ function selectCorp(code, name, stock) {
   document.getElementById('financial-content').innerHTML = '<div class="state"><span class="spinner"></span>재무 데이터 불러오는 중...</div>';
   document.getElementById('year-tabs').innerHTML = '';
   var currentYear = new Date().getFullYear();
-  availableYears = [currentYear - 1, currentYear - 2, currentYear - 3, currentYear - 4];
+  availableYears = [currentYear-1, currentYear-2, currentYear-3, currentYear-4];
   renderYearTabs(availableYears[0]);
   loadFinancial(code, availableYears[0]);
 }
 
 function renderYearTabs(activeYear) {
   document.getElementById('year-tabs').innerHTML = availableYears.map(function(y) {
-    return '<div class="year-tab ' + (y === activeYear ? 'active' : '') + '" onclick="switchYear(' + y + ')">' + y + '년</div>';
+    return '<div class="year-tab ' + (y===activeYear?'active':'') + '" onclick="switchYear(' + y + ')">' + y + '년</div>';
   }).join('');
 }
 
@@ -168,92 +215,87 @@ function switchYear(year) {
   loadFinancial(currentCorp.code, year);
 }
 
+async function dartFetch(apiUrl) {
+  var res = await fetch(PROXY_BASE + '?url=' + encodeURIComponent(apiUrl));
+  var text = await res.text();
+  try { return JSON.parse(text); }
+  catch(e) { throw new Error('파싱 오류 [' + res.status + ']: ' + text.slice(0,150)); }
+}
+
 async function loadFinancial(code, year) {
   var el = document.getElementById('financial-content');
   el.innerHTML = '<div class="state"><span class="spinner"></span>재무 데이터 불러오는 중...</div>';
   try {
     var base = 'https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json?crtfc_key=' + API_KEY + '&corp_code=' + code + '&bsns_year=' + year + '&reprt_code=11011&fs_div=';
     var data = await dartFetch(base + 'CFS');
-    if (data.status === '013' || !data.list || data.list.length === 0) {
-      data = await dartFetch(base + 'OFS');
-    }
-    if (data.status !== '000' || !data.list || data.list.length === 0) {
-      el.innerHTML = '<div class="state">' + year + '년 재무데이터가 없습니다</div>';
-      return;
+    if (data.status === '013' || !data.list || !data.list.length) data = await dartFetch(base + 'OFS');
+    if (data.status !== '000' || !data.list || !data.list.length) {
+      el.innerHTML = '<div class="state">' + year + '년 재무데이터가 없습니다</div>'; return;
     }
     renderFinancial(data.list, year);
-  } catch (e) {
+  } catch(e) {
     el.innerHTML = '<div class="error-msg">오류: ' + e.message + '</div>';
   }
 }
 
 function getAmt(list, accounts, sj) {
-  for (var i = 0; i < accounts.length; i++) {
-    var acct = accounts[i];
-    for (var j = 0; j < list.length; j++) {
-      var r = list[j];
-      if (r.sj_div === sj && (r.account_nm === acct || r.account_id === acct)) {
-        var v = parseInt((r.thstrm_amount || '').replace(/,/g, ''));
+  for (var i=0; i<accounts.length; i++)
+    for (var j=0; j<list.length; j++) {
+      var r=list[j];
+      if (r.sj_div===sj && (r.account_nm===accounts[i]||r.account_id===accounts[i])) {
+        var v=parseInt((r.thstrm_amount||'').replace(/,/g,''));
         if (!isNaN(v)) return v;
       }
     }
-  }
   return null;
 }
 
 function fmtAmt(v) {
-  if (v === null) return '-';
-  var abs = Math.abs(v), sign = v < 0 ? '-' : '';
-  if (abs >= 1e12) return sign + (abs / 1e12).toFixed(1) + '조';
-  if (abs >= 1e8)  return sign + Math.round(abs / 1e8) + '억';
-  if (abs >= 1e4)  return sign + Math.round(abs / 1e4) + '만';
-  return sign + abs.toLocaleString();
+  if (v===null) return '-';
+  var abs=Math.abs(v), sign=v<0?'-':'';
+  if (abs>=1e12) return sign+(abs/1e12).toFixed(1)+'조';
+  if (abs>=1e8)  return sign+Math.round(abs/1e8)+'억';
+  if (abs>=1e4)  return sign+Math.round(abs/1e4)+'만';
+  return sign+abs.toLocaleString();
 }
 
 function metricCard(label, value, badge, badgeType) {
-  return '<div class="metric-card">'
-    + '<div class="metric-label">' + label + '</div>'
-    + '<div class="metric-value">' + value + '</div>'
-    + (badge ? '<div class="metric-badge badge-' + badgeType + '">' + badge + '</div>' : '')
-    + '</div>';
+  return '<div class="metric-card"><div class="metric-label">'+label+'</div><div class="metric-value">'+value+'</div>'
+    +(badge?'<div class="metric-badge badge-'+badgeType+'">'+badge+'</div>':'')+'</div>';
 }
 
 function renderFinancial(list, year) {
-  var revenue     = getAmt(list, ['매출액','수익(매출액)','영업수익'], 'IS') || getAmt(list, ['매출액','수익(매출액)','영업수익'], 'CIS');
-  var opincome    = getAmt(list, ['영업이익','영업이익(손실)'], 'IS')        || getAmt(list, ['영업이익','영업이익(손실)'], 'CIS');
-  var netincome   = getAmt(list, ['당기순이익','당기순이익(손실)'], 'IS')     || getAmt(list, ['당기순이익','당기순이익(손실)'], 'CIS');
-  var assets      = getAmt(list, ['자산총계'], 'BS');
-  var liabilities = getAmt(list, ['부채총계'], 'BS');
-  var equity      = getAmt(list, ['자본총계'], 'BS');
-  var opMargin    = (revenue && opincome)  ? (opincome  / revenue * 100).toFixed(1) : null;
-  var netMargin   = (revenue && netincome) ? (netincome / revenue * 100).toFixed(1) : null;
-  var debtRatio   = (equity && liabilities && equity > 0) ? (liabilities / equity * 100).toFixed(1) : null;
+  var revenue     = getAmt(list,['매출액','수익(매출액)','영업수익'],'IS')||getAmt(list,['매출액','수익(매출액)','영업수익'],'CIS');
+  var opincome    = getAmt(list,['영업이익','영업이익(손실)'],'IS')||getAmt(list,['영업이익','영업이익(손실)'],'CIS');
+  var netincome   = getAmt(list,['당기순이익','당기순이익(손실)'],'IS')||getAmt(list,['당기순이익','당기순이익(손실)'],'CIS');
+  var assets      = getAmt(list,['자산총계'],'BS');
+  var liabilities = getAmt(list,['부채총계'],'BS');
+  var equity      = getAmt(list,['자본총계'],'BS');
+  var opMargin    = (revenue&&opincome)  ? (opincome/revenue*100).toFixed(1) : null;
+  var netMargin   = (revenue&&netincome) ? (netincome/revenue*100).toFixed(1) : null;
+  var debtRatio   = (equity&&liabilities&&equity>0) ? (liabilities/equity*100).toFixed(1) : null;
 
-  var isItems = list.filter(function(r) { return r.sj_div === 'IS' || r.sj_div === 'CIS'; }).slice(0, 15);
-  var bsItems = list.filter(function(r) { return r.sj_div === 'BS'; }).slice(0, 15);
+  var isItems = list.filter(function(r){return r.sj_div==='IS'||r.sj_div==='CIS';}).slice(0,15);
+  var bsItems = list.filter(function(r){return r.sj_div==='BS';}).slice(0,15);
 
   var html = '<div class="metrics-grid">'
-    + metricCard('매출액', fmtAmt(revenue), opMargin ? '영업이익률 ' + opMargin + '%' : null, parseFloat(opMargin) >= 0 ? 'pos' : 'neg')
-    + metricCard('영업이익', fmtAmt(opincome), opincome !== null ? (opincome >= 0 ? '흑자' : '적자') : null, opincome !== null ? (opincome >= 0 ? 'pos' : 'neg') : null)
-    + metricCard('당기순이익', fmtAmt(netincome), netMargin ? '순이익률 ' + netMargin + '%' : null, parseFloat(netMargin) >= 0 ? 'pos' : 'neg')
-    + metricCard('부채비율', debtRatio ? debtRatio + '%' : '-', debtRatio ? (parseFloat(debtRatio) <= 100 ? '안정' : parseFloat(debtRatio) <= 200 ? '보통' : '주의') : null, debtRatio ? (parseFloat(debtRatio) <= 100 ? 'pos' : parseFloat(debtRatio) <= 200 ? 'warn' : 'neg') : null)
-    + metricCard('자본총계', fmtAmt(equity), null, null)
-    + metricCard('자산총계', fmtAmt(assets), null, null)
-    + '</div>';
+    +metricCard('매출액', fmtAmt(revenue), opMargin?'영업이익률 '+opMargin+'%':null, parseFloat(opMargin)>=0?'pos':'neg')
+    +metricCard('영업이익', fmtAmt(opincome), opincome!==null?(opincome>=0?'흑자':'적자'):null, opincome!==null?(opincome>=0?'pos':'neg'):null)
+    +metricCard('당기순이익', fmtAmt(netincome), netMargin?'순이익률 '+netMargin+'%':null, parseFloat(netMargin)>=0?'pos':'neg')
+    +metricCard('부채비율', debtRatio?debtRatio+'%':'-', debtRatio?(parseFloat(debtRatio)<=100?'안정':parseFloat(debtRatio)<=200?'보통':'주의'):null, debtRatio?(parseFloat(debtRatio)<=100?'pos':parseFloat(debtRatio)<=200?'warn':'neg'):null)
+    +metricCard('자본총계', fmtAmt(equity), null, null)
+    +metricCard('자산총계', fmtAmt(assets), null, null)
+    +'</div>';
 
-  if (isItems.length) {
-    html += '<div class="section-title" style="margin-top:1.5rem">손익계산서</div>'
-      + '<table class="fs-table" style="margin-bottom:1.5rem"><thead><tr><th>항목</th><th>당기 (' + year + ')</th><th>전기 (' + (year - 1) + ')</th></tr></thead><tbody>'
-      + isItems.map(function(r) { return '<tr><td>' + r.account_nm + '</td><td>' + (r.thstrm_amount || '-') + '</td><td>' + (r.frmtrm_amount || '-') + '</td></tr>'; }).join('')
-      + '</tbody></table>';
-  }
+  if (isItems.length) html += '<div class="section-title" style="margin-top:1.5rem">손익계산서</div>'
+    +'<table class="fs-table" style="margin-bottom:1.5rem"><thead><tr><th>항목</th><th>당기 ('+year+')</th><th>전기 ('+(year-1)+')</th></tr></thead><tbody>'
+    +isItems.map(function(r){return '<tr><td>'+r.account_nm+'</td><td>'+(r.thstrm_amount||'-')+'</td><td>'+(r.frmtrm_amount||'-')+'</td></tr>';}).join('')
+    +'</tbody></table>';
 
-  if (bsItems.length) {
-    html += '<div class="section-title">재무상태표</div>'
-      + '<table class="fs-table"><thead><tr><th>항목</th><th>당기 (' + year + ')</th><th>전기 (' + (year - 1) + ')</th></tr></thead><tbody>'
-      + bsItems.map(function(r) { return '<tr><td>' + r.account_nm + '</td><td>' + (r.thstrm_amount || '-') + '</td><td>' + (r.frmtrm_amount || '-') + '</td></tr>'; }).join('')
-      + '</tbody></table>';
-  }
+  if (bsItems.length) html += '<div class="section-title">재무상태표</div>'
+    +'<table class="fs-table"><thead><tr><th>항목</th><th>당기 ('+year+')</th><th>전기 ('+(year-1)+')</th></tr></thead><tbody>'
+    +bsItems.map(function(r){return '<tr><td>'+r.account_nm+'</td><td>'+(r.thstrm_amount||'-')+'</td><td>'+(r.frmtrm_amount||'-')+'</td></tr>';}).join('')
+    +'</tbody></table>';
 
   document.getElementById('financial-content').innerHTML = html;
 }
@@ -261,6 +303,7 @@ function renderFinancial(list, year) {
 function goBack() {
   document.getElementById('view-search').style.display = 'block';
   document.getElementById('view-detail').style.display = 'none';
+  document.getElementById('search-result').innerHTML = '';
   currentCorp = null;
 }
 </script>
