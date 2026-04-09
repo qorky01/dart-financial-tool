@@ -114,17 +114,17 @@ async function searchCorp() {
   const el = document.getElementById('search-result');
   el.innerHTML = '<div class="state"><span class="spinner"></span>검색 중...</div>';
   try {
-    const apiUrl = 'https://opendart.fss.or.kr/api/list.json?crtfc_key=' + API_KEY + '&corp_name=' + encodeURIComponent(q) + '&page_no=1&page_count=20';
+    const apiUrl = 'https://opendart.fss.or.kr/api/company.json?crtfc_key=' + API_KEY + '&corp_name=' + encodeURIComponent(q);
     const data = await dartFetch(apiUrl);
     if (data.status !== '000') {
       el.innerHTML = '<div class="error-msg">검색 실패: ' + (data.message || data.status) + '</div>';
       return;
     }
-    const corps = {};
-    (data.list || []).forEach(function(item) {
-      if (!corps[item.corp_code]) corps[item.corp_code] = { code: item.corp_code, name: item.corp_name, stock: item.stock_code };
-    });
-    const list = Object.values(corps).slice(0, 10);
+    if (data.status !== '000') {
+  el.innerHTML = '<div class="error-msg">검색 실패: ' + (data.message || data.status) + '</div>';
+  return;
+}
+const list = [{ code: data.corp_code, name: data.corp_name, stock: data.stock_code }];
     if (!list.length) { el.innerHTML = '<div class="state">검색 결과가 없습니다</div>'; return; }
     el.innerHTML = '<div class="corp-list">' + list.map(function(c) {
       return '<div class="corp-item" onclick="selectCorp(\'' + c.code + '\',\'' + escHtml(c.name) + '\',\'' + (c.stock || '') + '\')">'
