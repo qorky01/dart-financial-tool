@@ -308,9 +308,9 @@ async function loadFinancial(corpCode, corpName, year) {
 
 // ── 데이터 없을 때 DART 바로가기 ──
 function renderNoData(corpCode, corpName, year) {
-  var dartCorpUrl   = 'https://dart.fss.or.kr/dsab001/search.ax?textCrpNm=' + encodeURIComponent(corpName);
-  var dartReportUrl = 'https://dart.fss.or.kr/dsab001/search.ax?textCrpCik=' + corpCode + '&typeCode=F001';
-  var dartMainUrl   = 'https://dart.fss.or.kr/dsab001/search.ax?textCrpCik=' + corpCode;
+  var dartCorpUrl   = 'https://dart.fss.or.kr/dsab001/main.do?autoSearch=true&textCrpNm=' + encodeURIComponent(corpName);
+  var dartReportUrl = 'https://dart.fss.or.kr/dsab002/main.do?corp_code=' + corpCode + '&report_tp=F001';
+  var dartMainUrl   = 'https://dart.fss.or.kr/dsab002/main.do?corp_code=' + corpCode;
 
   document.getElementById('financial-content').innerHTML =
     '<div class="no-data-box">'
@@ -386,9 +386,9 @@ function dartShortcuts(corpCode, corpName) {
   return '<div style="margin-top:1.5rem;padding-top:1.25rem;border-top:1px solid #f0f0f0">'
     + '<div style="font-size:12px;color:#aaa;margin-bottom:10px">📎 더 상세한 공시 자료가 필요하신가요?</div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
-    + '<a href="https://dart.fss.or.kr/dsab001/search.ax?textCrpCik='+corpCode+'&typeCode=F001" target="_blank" style="display:inline-flex;align-items:center;gap:5px;padding:7px 13px;background:#f0f5ff;color:#3b7dd8;border-radius:7px;font-size:13px;text-decoration:none;font-weight:500">📄 감사보고서</a>'
-    + '<a href="https://dart.fss.or.kr/dsab001/search.ax?textCrpCik='+corpCode+'" target="_blank" style="display:inline-flex;align-items:center;gap:5px;padding:7px 13px;background:#f5f5f5;color:#555;border-radius:7px;font-size:13px;text-decoration:none;font-weight:500">📁 전체 공시</a>'
-    + '<a href="https://dart.fss.or.kr/dsab001/search.ax?textCrpNm='+encodeURIComponent(corpName)+'" target="_blank" style="display:inline-flex;align-items:center;gap:5px;padding:7px 13px;background:#f5f5f5;color:#555;border-radius:7px;font-size:13px;text-decoration:none;font-weight:500">🔍 기업명 검색</a>'
+    + '<a href="https://dart.fss.or.kr/dsab002/main.do?corp_code='+corpCode+'&report_tp=F001" target="_blank" style="display:inline-flex;align-items:center;gap:5px;padding:7px 13px;background:#f0f5ff;color:#3b7dd8;border-radius:7px;font-size:13px;text-decoration:none;font-weight:500">📄 감사보고서</a>'
+    + '<a href="https://dart.fss.or.kr/dsab002/main.do?corp_code='+corpCode+'" target="_blank" style="display:inline-flex;align-items:center;gap:5px;padding:7px 13px;background:#f5f5f5;color:#555;border-radius:7px;font-size:13px;text-decoration:none;font-weight:500">📁 전체 공시</a>'
+    + '<a href="https://dart.fss.or.kr/dsab001/main.do?autoSearch=true&textCrpNm='+encodeURIComponent(corpName)+'" target="_blank" style="display:inline-flex;align-items:center;gap:5px;padding:7px 13px;background:#f5f5f5;color:#555;border-radius:7px;font-size:13px;text-decoration:none;font-weight:500">🔍 기업명 검색</a>'
     + '</div></div>';
 }
 
