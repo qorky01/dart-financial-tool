@@ -307,20 +307,34 @@ async function loadFinancial(corpCode, corpName, year) {
 }
 
 // ── 데이터 없을 때 DART 바로가기 ──
-function renderNoData(corpCode, corpName, year) {
-  var dartCorpUrl   = 'https://dart.fss.or.kr/dsab001/main.do?autoSearch=true&textCrpNm=' + encodeURIComponent(corpName);
-  var dartReportUrl = 'https://dart.fss.or.kr/dsab002/main.do?corp_code=' + corpCode + '&report_tp=F001';
-  var dartMainUrl   = 'https://dart.fss.or.kr/dsab002/main.do?corp_code=' + corpCode;
+async function renderNoData(corpCode, corpName, year) {
+  var el = document.getElementById('financial-content');
+  el.innerHTML = '<div class="no-data-box"><div class="icon">⏳</div><div class="title">공시 링크 조회 중...</div></div>';
 
-  document.getElementById('financial-content').innerHTML =
+  // 접수번호 조회
+  var rcpNo = null;
+  try {
+    var apiUrl = 'https://opendart.fss.or.kr/api/list.json?crtfc_key=' + DART_KEY
+      + '&corp_code=' + corpCode + '&pblntf_detail_ty=F001&page_no=1&page_count=1';
+    var data = await proxyFetch(apiUrl);
+    if (data.status === '000' && data.list && data.list.length > 0) {
+      rcpNo = data.list[0].rcept_no;
+    }
+  } catch(e) {}
+
+  var reportLink = rcpNo
+    ? 'https://dart.fss.or.kr/dsaf001/main.do?rcpNo=' + rcpNo
+    : 'https://dart.fss.or.kr/dsab001/main.do?autoSearch=true&textCrpNm=' + encodeURIComponent(corpName);
+  var allLink = 'https://dart.fss.or.kr/dsab001/main.do?autoSearch=true&textCrpNm=' + encodeURIComponent(corpName);
+
+  el.innerHTML =
     '<div class="no-data-box">'
     + '<div class="icon">📋</div>'
     + '<div class="title">' + year + '년 재무데이터를 찾을 수 없습니다</div>'
     + '<div class="desc">DART API 및 금융위 공공데이터에 해당 기업의<br>재무정보가 없습니다.<br>DART에서 직접 공시 자료를 확인해보세요.</div>'
     + '<div class="dart-links">'
-    + '<a class="dart-btn dart-btn-primary" href="' + dartReportUrl + '" target="_blank">📄 감사보고서 조회</a>'
-    + '<a class="dart-btn dart-btn-secondary" href="' + dartMainUrl + '" target="_blank">📁 전체 공시 목록</a>'
-    + '<a class="dart-btn dart-btn-gray" href="' + dartCorpUrl + '" target="_blank">🔍 기업명으로 검색</a>'
+    + '<a class="dart-btn dart-btn-primary" href="' + reportLink + '" target="_blank">📄 ' + (rcpNo ? '최근 감사보고서 열기' : '감사보고서 검색') + '</a>'
+    + '<a class="dart-btn dart-btn-gray" href="' + allLink + '" target="_blank">🔍 DART 기업명 검색</a>'
     + '</div>'
     + '</div>';
 }
@@ -382,13 +396,29 @@ function getFscAmt(items, keyword) {
   return isNaN(v) ? null : v;
 }
 
-function dartShortcuts(corpCode, corpName) {
+async function buildDartShortcuts(corpCode, corpName) {
+  // 최근 감사보고서 접수번호 조회
+  var rcpNo = null;
+  try {
+    var apiUrl = 'https://opendart.fss.or.kr/api/list.json?crtfc_key=' + DART_KEY
+      + '&corp_code=' + corpCode + '&pblntf_detail_ty=F001&page_no=1&page_count=1';
+    var data = await proxyFetch(apiUrl);
+    if (data.status === '000' && data.list && data.list.length > 0) {
+      rcpNo = data.list[0].rcept_no;
+    }
+  } catch(e) {}
+
+  var reportLink = rcpNo
+    ? 'https://dart.fss.or.kr/dsaf001/main.do?rcpNo=' + rcpNo
+    : 'https://dart.fss.or.kr/dsab001/main.do?autoSearch=true&textCrpNm=' + encodeURIComponent(corpName);
+
+  var allLink = 'https://dart.fss.or.kr/dsab001/main.do?autoSearch=true&textCrpNm=' + encodeURIComponent(corpName);
+
   return '<div style="margin-top:1.5rem;padding-top:1.25rem;border-top:1px solid #f0f0f0">'
     + '<div style="font-size:12px;color:#aaa;margin-bottom:10px">📎 더 상세한 공시 자료가 필요하신가요?</div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
-    + '<a href="https://dart.fss.or.kr/dsab002/main.do?corp_code='+corpCode+'&report_tp=F001" target="_blank" style="display:inline-flex;align-items:center;gap:5px;padding:7px 13px;background:#f0f5ff;color:#3b7dd8;border-radius:7px;font-size:13px;text-decoration:none;font-weight:500">📄 감사보고서</a>'
-    + '<a href="https://dart.fss.or.kr/dsab002/main.do?corp_code='+corpCode+'" target="_blank" style="display:inline-flex;align-items:center;gap:5px;padding:7px 13px;background:#f5f5f5;color:#555;border-radius:7px;font-size:13px;text-decoration:none;font-weight:500">📁 전체 공시</a>'
-    + '<a href="https://dart.fss.or.kr/dsab001/main.do?autoSearch=true&textCrpNm='+encodeURIComponent(corpName)+'" target="_blank" style="display:inline-flex;align-items:center;gap:5px;padding:7px 13px;background:#f5f5f5;color:#555;border-radius:7px;font-size:13px;text-decoration:none;font-weight:500">🔍 기업명 검색</a>'
+    + '<a href="' + reportLink + '" target="_blank" style="display:inline-flex;align-items:center;gap:5px;padding:7px 13px;background:#f0f5ff;color:#3b7dd8;border-radius:7px;font-size:13px;text-decoration:none;font-weight:500">📄 ' + (rcpNo ? '최근 감사보고서' : '감사보고서 검색') + '</a>'
+    + '<a href="' + allLink + '" target="_blank" style="display:inline-flex;align-items:center;gap:5px;padding:7px 13px;background:#f5f5f5;color:#555;border-radius:7px;font-size:13px;text-decoration:none;font-weight:500">📁 전체 공시 목록</a>'
     + '</div></div>';
 }
 
@@ -424,9 +454,13 @@ function renderFsc(summItems, incoItems, year, corpCode, corpName) {
     + '</tbody></table>';
 
   // 금융위 데이터 → 하단에 DART 바로가기 항상 표시
-  if (corpCode) html += dartShortcuts(corpCode, corpName);
-
   document.getElementById('financial-content').innerHTML = html;
+  if (corpCode) {
+    buildDartShortcuts(corpCode, corpName).then(function(shortcut) {
+      var el = document.getElementById('financial-content');
+      if (el) el.innerHTML += shortcut;
+    });
+  }
 }
 
 function fmtAmt(v) {
