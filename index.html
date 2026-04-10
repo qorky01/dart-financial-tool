@@ -36,6 +36,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Noto Sans 
 .company-header { margin-bottom: 1.25rem; }
 .company-header .name { font-size: 22px; font-weight: 600; }
 .company-header .sub { font-size: 13px; color: #888; margin-top: 4px; }
+.source-badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 8px; margin-left: 8px; vertical-align: middle; }
+.source-dart { background: #e8f0fe; color: #1a56db; }
+.source-fsc { background: #e6f4ea; color: #1e7e34; }
 .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 1.25rem; }
 .metric-card { background: #f7f9ff; border-radius: 10px; padding: 14px 16px; }
 .metric-label { font-size: 12px; color: #888; margin-bottom: 6px; }
@@ -99,8 +102,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Noto Sans 
 </div>
 
 <script>
-const API_KEY = '43290be06d0cc2ce9323fceee47d4d12274e56b0';
-const PROXY_BASE = 'https://dart-proxy.qorky01.workers.dev/';
+const DART_KEY  = '43290be06d0cc2ce9323fceee47d4d12274e56b0';
+const FSC_KEY   = 'c46fd3231b0bef66397ffff17b4fc1b78ba0e8a59b6b139e7fc595f5def72eb8';
+const PROXY     = 'https://dart-proxy.qorky01.workers.dev/';
 
 var corpList = null;
 var currentCorp = null;
@@ -165,9 +169,7 @@ function showAc(q) {
   el.style.display = 'block';
 }
 
-function hideAc() {
-  document.getElementById('autocomplete').style.display = 'none';
-}
+function hideAc() { document.getElementById('autocomplete').style.display = 'none'; }
 
 function doSearch() {
   var q = document.getElementById('search-input').value.trim();
@@ -201,7 +203,7 @@ function selectCorp(code, name, stock) {
   var currentYear = new Date().getFullYear();
   availableYears = [currentYear-1, currentYear-2, currentYear-3, currentYear-4];
   renderYearTabs(availableYears[0]);
-  loadFinancial(code, availableYears[0]);
+  loadFinancial(code, name, availableYears[0]);
 }
 
 function renderYearTabs(activeYear) {
@@ -212,32 +214,96 @@ function renderYearTabs(activeYear) {
 
 function switchYear(year) {
   renderYearTabs(year);
-  loadFinancial(currentCorp.code, year);
+  loadFinancial(currentCorp.code, currentCorp.name, year);
 }
 
-async function dartFetch(apiUrl) {
-  var res = await fetch(PROXY_BASE + '?url=' + encodeURIComponent(apiUrl));
+async function proxyFetch(apiUrl) {
+  var res = await fetch(PROXY + '?url=' + encodeURIComponent(apiUrl));
   var text = await res.text();
   try { return JSON.parse(text); }
   catch(e) { throw new Error('파싱 오류 [' + res.status + ']: ' + text.slice(0,150)); }
 }
 
-async function loadFinancial(code, year) {
+// ── DART API로 재무데이터 조회 ──
+async function fetchDart(corpCode, year) {
+  var base = 'https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json?crtfc_key=' + DART_KEY
+    + '&corp_code=' + corpCode + '&bsns_year=' + year + '&reprt_code=11011&fs_div=';
+  var data = await proxyFetch(base + 'CFS');
+  if (data.status === '013' || !data.list || !data.list.length) {
+    data = await proxyFetch(base + 'OFS');
+  }
+  if (data.status !== '000' || !data.list || !data.list.length) return null;
+  return { source: 'dart', list: data.list };
+}
+
+// ── 금융위 API로 법인등록번호 조회 ──
+async function fetchCrno(corpName) {
+  var url = 'https://apis.data.go.kr/1160100/service/GetCorpBasicInfoService_V2/getCorpOutline_V2'
+    + '?serviceKey=' + encodeURIComponent(FSC_KEY)
+    + '&pageNo=1&numOfRows=5&resultType=json&corpNm=' + encodeURIComponent(corpName);
+  var data = await proxyFetch(url);
+  var items = data.response && data.response.body && data.response.body.items && data.response.body.items.item;
+  if (!items) return null;
+  if (!Array.isArray(items)) items = [items];
+  // 이름이 정확히 일치하는 것 우선
+  var exact = items.find(function(i) { return i.corpNm === corpName; });
+  return (exact || items[0]).crno || null;
+}
+
+// ── 금융위 API로 재무데이터 조회 ──
+async function fetchFsc(crno, year) {
+  // 요약재무제표 (매출액, 영업이익, 총자산, 총부채)
+  var summUrl = 'https://apis.data.go.kr/1160100/service/GetFinaStatInfoService_V2/getSummFinaStat_V2'
+    + '?serviceKey=' + encodeURIComponent(FSC_KEY)
+    + '&pageNo=1&numOfRows=10&resultType=json&crno=' + crno + '&bizYear=' + year;
+  // 손익계산서 (당기순이익)
+  var incoUrl = 'https://apis.data.go.kr/1160100/service/GetFinaStatInfoService_V2/getIncoStat_V2'
+    + '?serviceKey=' + encodeURIComponent(FSC_KEY)
+    + '&pageNo=1&numOfRows=20&resultType=json&crno=' + crno + '&bizYear=' + year;
+
+  var [summData, incoData] = await Promise.all([proxyFetch(summUrl), proxyFetch(incoUrl)]);
+
+  var summItems = summData.response && summData.response.body && summData.response.body.items && summData.response.body.items.item;
+  if (!summItems) return null;
+  if (!Array.isArray(summItems)) summItems = [summItems];
+
+  var incoItems = incoData.response && incoData.response.body && incoData.response.body.items && incoData.response.body.items.item;
+  if (incoItems && !Array.isArray(incoItems)) incoItems = [incoItems];
+
+  return { source: 'fsc', summItems: summItems, incoItems: incoItems || [] };
+}
+
+// ── 통합 로드 ──
+async function loadFinancial(corpCode, corpName, year) {
   var el = document.getElementById('financial-content');
   el.innerHTML = '<div class="state"><span class="spinner"></span>재무 데이터 불러오는 중...</div>';
   try {
-    var base = 'https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json?crtfc_key=' + API_KEY + '&corp_code=' + code + '&bsns_year=' + year + '&reprt_code=11011&fs_div=';
-    var data = await dartFetch(base + 'CFS');
-    if (data.status === '013' || !data.list || !data.list.length) data = await dartFetch(base + 'OFS');
-    if (data.status !== '000' || !data.list || !data.list.length) {
-      el.innerHTML = '<div class="state">' + year + '년 재무데이터가 없습니다</div>'; return;
+    // 1. DART 먼저 시도
+    var result = await fetchDart(corpCode, year);
+
+    // 2. DART 실패시 금융위 API
+    if (!result) {
+      el.innerHTML = '<div class="state"><span class="spinner"></span>DART 데이터 없음, 금융위 데이터 조회 중...</div>';
+      var crno = await fetchCrno(corpName);
+      if (crno) {
+        result = await fetchFsc(crno, year);
+      }
     }
-    renderFinancial(data.list, year);
+
+    if (!result) {
+      el.innerHTML = '<div class="state">' + year + '년 재무데이터가 없습니다.<br><small style="color:#aaa">DART 및 금융위 공공데이터에 모두 해당 기업의 재무정보가 없습니다.</small></div>';
+      return;
+    }
+
+    if (result.source === 'dart') renderDart(result.list, year);
+    else renderFsc(result.summItems, result.incoItems, year, corpName);
+
   } catch(e) {
     el.innerHTML = '<div class="error-msg">오류: ' + e.message + '</div>';
   }
 }
 
+// ── DART 렌더링 ──
 function getAmt(list, accounts, sj) {
   for (var i=0; i<accounts.length; i++)
     for (var j=0; j<list.length; j++) {
@@ -250,21 +316,7 @@ function getAmt(list, accounts, sj) {
   return null;
 }
 
-function fmtAmt(v) {
-  if (v===null) return '-';
-  var abs=Math.abs(v), sign=v<0?'-':'';
-  if (abs>=1e12) return sign+(abs/1e12).toFixed(1)+'조';
-  if (abs>=1e8)  return sign+Math.round(abs/1e8)+'억';
-  if (abs>=1e4)  return sign+Math.round(abs/1e4)+'만';
-  return sign+abs.toLocaleString();
-}
-
-function metricCard(label, value, badge, badgeType) {
-  return '<div class="metric-card"><div class="metric-label">'+label+'</div><div class="metric-value">'+value+'</div>'
-    +(badge?'<div class="metric-badge badge-'+badgeType+'">'+badge+'</div>':'')+'</div>';
-}
-
-function renderFinancial(list, year) {
+function renderDart(list, year) {
   var revenue     = getAmt(list,['매출액','수익(매출액)','영업수익'],'IS')||getAmt(list,['매출액','수익(매출액)','영업수익'],'CIS');
   var opincome    = getAmt(list,['영업이익','영업이익(손실)'],'IS')||getAmt(list,['영업이익','영업이익(손실)'],'CIS');
   var netincome   = getAmt(list,['당기순이익','당기순이익(손실)'],'IS')||getAmt(list,['당기순이익','당기순이익(손실)'],'CIS');
@@ -274,30 +326,101 @@ function renderFinancial(list, year) {
   var opMargin    = (revenue&&opincome)  ? (opincome/revenue*100).toFixed(1) : null;
   var netMargin   = (revenue&&netincome) ? (netincome/revenue*100).toFixed(1) : null;
   var debtRatio   = (equity&&liabilities&&equity>0) ? (liabilities/equity*100).toFixed(1) : null;
-
   var isItems = list.filter(function(r){return r.sj_div==='IS'||r.sj_div==='CIS';}).slice(0,15);
   var bsItems = list.filter(function(r){return r.sj_div==='BS';}).slice(0,15);
 
-  var html = '<div class="metrics-grid">'
-    +metricCard('매출액', fmtAmt(revenue), opMargin?'영업이익률 '+opMargin+'%':null, parseFloat(opMargin)>=0?'pos':'neg')
-    +metricCard('영업이익', fmtAmt(opincome), opincome!==null?(opincome>=0?'흑자':'적자'):null, opincome!==null?(opincome>=0?'pos':'neg'):null)
-    +metricCard('당기순이익', fmtAmt(netincome), netMargin?'순이익률 '+netMargin+'%':null, parseFloat(netMargin)>=0?'pos':'neg')
-    +metricCard('부채비율', debtRatio?debtRatio+'%':'-', debtRatio?(parseFloat(debtRatio)<=100?'안정':parseFloat(debtRatio)<=200?'보통':'주의'):null, debtRatio?(parseFloat(debtRatio)<=100?'pos':parseFloat(debtRatio)<=200?'warn':'neg'):null)
-    +metricCard('자본총계', fmtAmt(equity), null, null)
-    +metricCard('자산총계', fmtAmt(assets), null, null)
-    +'</div>';
+  var html = '<div style="margin-bottom:1rem"><span class="source-badge source-dart">DART 공시 데이터</span></div>'
+    + '<div class="metrics-grid">'
+    + metricCard('매출액', fmtAmt(revenue), opMargin?'영업이익률 '+opMargin+'%':null, parseFloat(opMargin)>=0?'pos':'neg')
+    + metricCard('영업이익', fmtAmt(opincome), opincome!==null?(opincome>=0?'흑자':'적자'):null, opincome!==null?(opincome>=0?'pos':'neg'):null)
+    + metricCard('당기순이익', fmtAmt(netincome), netMargin?'순이익률 '+netMargin+'%':null, parseFloat(netMargin)>=0?'pos':'neg')
+    + metricCard('부채비율', debtRatio?debtRatio+'%':'-', debtRatio?(parseFloat(debtRatio)<=100?'안정':parseFloat(debtRatio)<=200?'보통':'주의'):null, debtRatio?(parseFloat(debtRatio)<=100?'pos':parseFloat(debtRatio)<=200?'warn':'neg'):null)
+    + metricCard('자본총계', fmtAmt(equity), null, null)
+    + metricCard('자산총계', fmtAmt(assets), null, null)
+    + '</div>';
 
   if (isItems.length) html += '<div class="section-title" style="margin-top:1.5rem">손익계산서</div>'
-    +'<table class="fs-table" style="margin-bottom:1.5rem"><thead><tr><th>항목</th><th>당기 ('+year+')</th><th>전기 ('+(year-1)+')</th></tr></thead><tbody>'
-    +isItems.map(function(r){return '<tr><td>'+r.account_nm+'</td><td>'+(r.thstrm_amount||'-')+'</td><td>'+(r.frmtrm_amount||'-')+'</td></tr>';}).join('')
-    +'</tbody></table>';
+    + '<table class="fs-table" style="margin-bottom:1.5rem"><thead><tr><th>항목</th><th>당기 ('+year+')</th><th>전기 ('+(year-1)+')</th></tr></thead><tbody>'
+    + isItems.map(function(r){return '<tr><td>'+r.account_nm+'</td><td>'+(r.thstrm_amount||'-')+'</td><td>'+(r.frmtrm_amount||'-')+'</td></tr>';}).join('')
+    + '</tbody></table>';
 
   if (bsItems.length) html += '<div class="section-title">재무상태표</div>'
-    +'<table class="fs-table"><thead><tr><th>항목</th><th>당기 ('+year+')</th><th>전기 ('+(year-1)+')</th></tr></thead><tbody>'
-    +bsItems.map(function(r){return '<tr><td>'+r.account_nm+'</td><td>'+(r.thstrm_amount||'-')+'</td><td>'+(r.frmtrm_amount||'-')+'</td></tr>';}).join('')
-    +'</tbody></table>';
+    + '<table class="fs-table"><thead><tr><th>항목</th><th>당기 ('+year+')</th><th>전기 ('+(year-1)+')</th></tr></thead><tbody>'
+    + bsItems.map(function(r){return '<tr><td>'+r.account_nm+'</td><td>'+(r.thstrm_amount||'-')+'</td><td>'+(r.frmtrm_amount||'-')+'</td></tr>';}).join('')
+    + '</tbody></table>';
 
   document.getElementById('financial-content').innerHTML = html;
+}
+
+// ── 금융위 렌더링 ──
+function getFscAmt(items, keyword) {
+  var found = items.find(function(i) { return i.acitNm && i.acitNm.includes(keyword); });
+  if (!found) return null;
+  var v = parseInt((found.thstrmAmt||'').replace(/,/g,''));
+  return isNaN(v) ? null : v;
+}
+
+function renderFsc(summItems, incoItems, year, corpName) {
+  // 요약재무제표에서 추출
+  var revenue     = getFscAmt(summItems, '매출');
+  var opincome    = getFscAmt(summItems, '영업이익');
+  var assets      = getFscAmt(summItems, '자산');
+  var liabilities = getFscAmt(summItems, '부채');
+  var equity      = getFscAmt(summItems, '자본');
+
+  // 손익계산서에서 당기순이익
+  var netincome   = getFscAmt(incoItems, '당기순이익');
+  if (netincome === null) netincome = getFscAmt(summItems, '당기순이익');
+
+  var opMargin    = (revenue&&opincome)  ? (opincome/revenue*100).toFixed(1) : null;
+  var netMargin   = (revenue&&netincome) ? (netincome/revenue*100).toFixed(1) : null;
+  var debtRatio   = (equity&&liabilities&&equity>0) ? (liabilities/equity*100).toFixed(1) : null;
+
+  var html = '<div style="margin-bottom:1rem"><span class="source-badge source-fsc">금융위 공공데이터</span></div>'
+    + '<div class="metrics-grid">'
+    + metricCard('매출액', fmtAmt(revenue), opMargin?'영업이익률 '+opMargin+'%':null, parseFloat(opMargin)>=0?'pos':'neg')
+    + metricCard('영업이익', fmtAmt(opincome), opincome!==null?(opincome>=0?'흑자':'적자'):null, opincome!==null?(opincome>=0?'pos':'neg'):null)
+    + metricCard('당기순이익', fmtAmt(netincome), netMargin?'순이익률 '+netMargin+'%':null, parseFloat(netMargin)>=0?'pos':'neg')
+    + metricCard('부채비율', debtRatio?debtRatio+'%':'-', debtRatio?(parseFloat(debtRatio)<=100?'안정':parseFloat(debtRatio)<=200?'보통':'주의'):null, debtRatio?(parseFloat(debtRatio)<=100?'pos':parseFloat(debtRatio)<=200?'warn':'neg'):null)
+    + metricCard('자본총계', fmtAmt(equity), null, null)
+    + metricCard('자산총계', fmtAmt(assets), null, null)
+    + '</div>';
+
+  // 요약재무제표 상세
+  if (summItems.length) {
+    html += '<div class="section-title" style="margin-top:1.5rem">요약재무제표</div>'
+      + '<table class="fs-table" style="margin-bottom:1.5rem"><thead><tr><th>항목</th><th>당기 ('+year+')</th><th>전기 ('+(year-1)+')</th></tr></thead><tbody>'
+      + summItems.map(function(r){
+          return '<tr><td>'+(r.acitNm||'-')+'</td><td>'+(r.thstrmAmt||'-')+'</td><td>'+(r.bfefrmAmt||'-')+'</td></tr>';
+        }).join('')
+      + '</tbody></table>';
+  }
+
+  // 손익계산서 상세
+  if (incoItems.length) {
+    html += '<div class="section-title">손익계산서</div>'
+      + '<table class="fs-table"><thead><tr><th>항목</th><th>당기 ('+year+')</th><th>전기 ('+(year-1)+')</th></tr></thead><tbody>'
+      + incoItems.map(function(r){
+          return '<tr><td>'+(r.acitNm||'-')+'</td><td>'+(r.thstrmAmt||'-')+'</td><td>'+(r.bfefrmAmt||'-')+'</td></tr>';
+        }).join('')
+      + '</tbody></table>';
+  }
+
+  document.getElementById('financial-content').innerHTML = html;
+}
+
+function fmtAmt(v) {
+  if (v===null||v===undefined) return '-';
+  var abs=Math.abs(v), sign=v<0?'-':'';
+  if (abs>=1e12) return sign+(abs/1e12).toFixed(1)+'조';
+  if (abs>=1e8)  return sign+Math.round(abs/1e8)+'억';
+  if (abs>=1e4)  return sign+Math.round(abs/1e4)+'만';
+  return sign+abs.toLocaleString();
+}
+
+function metricCard(label, value, badge, badgeType) {
+  return '<div class="metric-card"><div class="metric-label">'+label+'</div><div class="metric-value">'+value+'</div>'
+    +(badge&&badgeType?'<div class="metric-badge badge-'+badgeType+'">'+badge+'</div>':'')+'</div>';
 }
 
 function goBack() {
