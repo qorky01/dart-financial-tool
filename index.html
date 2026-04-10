@@ -61,6 +61,21 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Noto Sans 
 .loading-bar { font-size: 13px; color: #888; margin-top: 10px; }
 .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #ddd; border-top-color: #3b7dd8; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 6px; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* DART 바로가기 박스 */
+.no-data-box { text-align: center; padding: 2rem 1rem; }
+.no-data-box .icon { font-size: 36px; margin-bottom: 12px; }
+.no-data-box .title { font-size: 16px; font-weight: 600; color: #333; margin-bottom: 6px; }
+.no-data-box .desc { font-size: 13px; color: #888; margin-bottom: 20px; line-height: 1.6; }
+.dart-links { display: flex; flex-direction: column; gap: 10px; max-width: 320px; margin: 0 auto; }
+.dart-btn { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 20px; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; text-decoration: none; transition: all 0.15s; border: none; }
+.dart-btn-primary { background: #3b7dd8; color: #fff; }
+.dart-btn-primary:hover { background: #2d68c0; }
+.dart-btn-secondary { background: #fff; color: #3b7dd8; border: 1px solid #3b7dd8; }
+.dart-btn-secondary:hover { background: #f0f5ff; }
+.dart-btn-gray { background: #fff; color: #555; border: 1px solid #ddd; }
+.dart-btn-gray:hover { background: #f5f5f5; }
+
 @media (max-width: 480px) {
   .metrics-grid { grid-template-columns: 1fr 1fr; }
   .metric-value { font-size: 18px; }
@@ -102,9 +117,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Noto Sans 
 </div>
 
 <script>
-const DART_KEY  = '43290be06d0cc2ce9323fceee47d4d12274e56b0';
-const FSC_KEY   = 'c46fd3231b0bef66397ffff17b4fc1b78ba0e8a59b6b139e7fc595f5def72eb8';
-const PROXY     = 'https://dart-proxy.qorky01.workers.dev/';
+const DART_KEY = '43290be06d0cc2ce9323fceee47d4d12274e56b0';
+const FSC_KEY  = 'c46fd3231b0bef66397ffff17b4fc1b78ba0e8a59b6b139e7fc595f5def72eb8';
+const PROXY    = 'https://dart-proxy.qorky01.workers.dev/';
 
 var corpList = null;
 var currentCorp = null;
@@ -224,7 +239,6 @@ async function proxyFetch(apiUrl) {
   catch(e) { throw new Error('파싱 오류 [' + res.status + ']: ' + text.slice(0,150)); }
 }
 
-// ── DART API로 재무데이터 조회 ──
 async function fetchDart(corpCode, year) {
   var base = 'https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json?crtfc_key=' + DART_KEY
     + '&corp_code=' + corpCode + '&bsns_year=' + year + '&reprt_code=11011&fs_div=';
@@ -236,7 +250,6 @@ async function fetchDart(corpCode, year) {
   return { source: 'dart', list: data.list };
 }
 
-// ── 금융위 API로 법인등록번호 조회 ──
 async function fetchCrno(corpName) {
   var url = 'https://apis.data.go.kr/1160100/service/GetCorpBasicInfoService_V2/getCorpOutline_V2'
     + '?serviceKey=' + encodeURIComponent(FSC_KEY)
@@ -245,62 +258,73 @@ async function fetchCrno(corpName) {
   var items = data.response && data.response.body && data.response.body.items && data.response.body.items.item;
   if (!items) return null;
   if (!Array.isArray(items)) items = [items];
-  // 이름이 정확히 일치하는 것 우선
   var exact = items.find(function(i) { return i.corpNm === corpName; });
   return (exact || items[0]).crno || null;
 }
 
-// ── 금융위 API로 재무데이터 조회 ──
 async function fetchFsc(crno, year) {
-  // 요약재무제표 (매출액, 영업이익, 총자산, 총부채)
   var summUrl = 'https://apis.data.go.kr/1160100/service/GetFinaStatInfoService_V2/getSummFinaStat_V2'
     + '?serviceKey=' + encodeURIComponent(FSC_KEY)
     + '&pageNo=1&numOfRows=10&resultType=json&crno=' + crno + '&bizYear=' + year;
-  // 손익계산서 (당기순이익)
   var incoUrl = 'https://apis.data.go.kr/1160100/service/GetFinaStatInfoService_V2/getIncoStat_V2'
     + '?serviceKey=' + encodeURIComponent(FSC_KEY)
     + '&pageNo=1&numOfRows=20&resultType=json&crno=' + crno + '&bizYear=' + year;
-
-  var [summData, incoData] = await Promise.all([proxyFetch(summUrl), proxyFetch(incoUrl)]);
-
+  var summData = await proxyFetch(summUrl);
+  var incoData = await proxyFetch(incoUrl);
   var summItems = summData.response && summData.response.body && summData.response.body.items && summData.response.body.items.item;
   if (!summItems) return null;
   if (!Array.isArray(summItems)) summItems = [summItems];
-
   var incoItems = incoData.response && incoData.response.body && incoData.response.body.items && incoData.response.body.items.item;
   if (incoItems && !Array.isArray(incoItems)) incoItems = [incoItems];
-
   return { source: 'fsc', summItems: summItems, incoItems: incoItems || [] };
 }
 
-// ── 통합 로드 ──
 async function loadFinancial(corpCode, corpName, year) {
   var el = document.getElementById('financial-content');
   el.innerHTML = '<div class="state"><span class="spinner"></span>재무 데이터 불러오는 중...</div>';
   try {
-    // 1. DART 먼저 시도
+    // 1. DART 먼저
     var result = await fetchDart(corpCode, year);
 
-    // 2. DART 실패시 금융위 API
+    // 2. 금융위 API fallback
     if (!result) {
       el.innerHTML = '<div class="state"><span class="spinner"></span>DART 데이터 없음, 금융위 데이터 조회 중...</div>';
-      var crno = await fetchCrno(corpName);
-      if (crno) {
-        result = await fetchFsc(crno, year);
-      }
+      try {
+        var crno = await fetchCrno(corpName);
+        if (crno) result = await fetchFsc(crno, year);
+      } catch(e) { /* 금융위도 실패하면 no-data로 */ }
     }
 
     if (!result) {
-      el.innerHTML = '<div class="state">' + year + '년 재무데이터가 없습니다.<br><small style="color:#aaa">DART 및 금융위 공공데이터에 모두 해당 기업의 재무정보가 없습니다.</small></div>';
+      renderNoData(corpCode, corpName, year);
       return;
     }
 
     if (result.source === 'dart') renderDart(result.list, year);
-    else renderFsc(result.summItems, result.incoItems, year, corpName);
+    else renderFsc(result.summItems, result.incoItems, year);
 
   } catch(e) {
     el.innerHTML = '<div class="error-msg">오류: ' + e.message + '</div>';
   }
+}
+
+// ── 데이터 없을 때 DART 바로가기 ──
+function renderNoData(corpCode, corpName, year) {
+  var dartCorpUrl   = 'https://dart.fss.or.kr/dsab001/search.ax?textCrpNm=' + encodeURIComponent(corpName);
+  var dartReportUrl = 'https://dart.fss.or.kr/dsab001/search.ax?textCrpCik=' + corpCode + '&typeCode=F001';
+  var dartMainUrl   = 'https://dart.fss.or.kr/dsab001/search.ax?textCrpCik=' + corpCode;
+
+  document.getElementById('financial-content').innerHTML =
+    '<div class="no-data-box">'
+    + '<div class="icon">📋</div>'
+    + '<div class="title">' + year + '년 재무데이터를 찾을 수 없습니다</div>'
+    + '<div class="desc">DART API 및 금융위 공공데이터에 해당 기업의<br>재무정보가 없습니다.<br>DART에서 직접 공시 자료를 확인해보세요.</div>'
+    + '<div class="dart-links">'
+    + '<a class="dart-btn dart-btn-primary" href="' + dartReportUrl + '" target="_blank">📄 감사보고서 조회</a>'
+    + '<a class="dart-btn dart-btn-secondary" href="' + dartMainUrl + '" target="_blank">📁 전체 공시 목록</a>'
+    + '<a class="dart-btn dart-btn-gray" href="' + dartCorpUrl + '" target="_blank">🔍 기업명으로 검색</a>'
+    + '</div>'
+    + '</div>';
 }
 
 // ── DART 렌더링 ──
@@ -339,14 +363,14 @@ function renderDart(list, year) {
     + metricCard('자산총계', fmtAmt(assets), null, null)
     + '</div>';
 
-  if (isItems.length) html += '<div class="section-title" style="margin-top:1.5rem">손익계산서</div>'
+  if (isItems.length) html += '<div class="section-title" style="margin-top:1.5rem">손익계산서 <span style="font-weight:400;color:#aaa;font-size:11px">※ 숫자에 마우스를 올리면 정확한 금액이 표시됩니다</span></div>'
     + '<table class="fs-table" style="margin-bottom:1.5rem"><thead><tr><th>항목</th><th>당기 ('+year+')</th><th>전기 ('+(year-1)+')</th></tr></thead><tbody>'
-    + isItems.map(function(r){return '<tr><td>'+r.account_nm+'</td><td>'+(r.thstrm_amount||'-')+'</td><td>'+(r.frmtrm_amount||'-')+'</td></tr>';}).join('')
+    + isItems.map(function(r){return '<tr><td>'+r.account_nm+'</td><td>'+fmtTableAmt(r.thstrm_amount)+'</td><td>'+fmtTableAmt(r.frmtrm_amount)+'</td></tr>';}).join('')
     + '</tbody></table>';
 
   if (bsItems.length) html += '<div class="section-title">재무상태표</div>'
     + '<table class="fs-table"><thead><tr><th>항목</th><th>당기 ('+year+')</th><th>전기 ('+(year-1)+')</th></tr></thead><tbody>'
-    + bsItems.map(function(r){return '<tr><td>'+r.account_nm+'</td><td>'+(r.thstrm_amount||'-')+'</td><td>'+(r.frmtrm_amount||'-')+'</td></tr>';}).join('')
+    + bsItems.map(function(r){return '<tr><td>'+r.account_nm+'</td><td>'+fmtTableAmt(r.thstrm_amount)+'</td><td>'+fmtTableAmt(r.frmtrm_amount)+'</td></tr>';}).join('')
     + '</tbody></table>';
 
   document.getElementById('financial-content').innerHTML = html;
@@ -360,18 +384,13 @@ function getFscAmt(items, keyword) {
   return isNaN(v) ? null : v;
 }
 
-function renderFsc(summItems, incoItems, year, corpName) {
-  // 요약재무제표에서 추출
+function renderFsc(summItems, incoItems, year) {
   var revenue     = getFscAmt(summItems, '매출');
   var opincome    = getFscAmt(summItems, '영업이익');
   var assets      = getFscAmt(summItems, '자산');
   var liabilities = getFscAmt(summItems, '부채');
   var equity      = getFscAmt(summItems, '자본');
-
-  // 손익계산서에서 당기순이익
-  var netincome   = getFscAmt(incoItems, '당기순이익');
-  if (netincome === null) netincome = getFscAmt(summItems, '당기순이익');
-
+  var netincome   = getFscAmt(incoItems, '당기순이익') || getFscAmt(summItems, '당기순이익');
   var opMargin    = (revenue&&opincome)  ? (opincome/revenue*100).toFixed(1) : null;
   var netMargin   = (revenue&&netincome) ? (netincome/revenue*100).toFixed(1) : null;
   var debtRatio   = (equity&&liabilities&&equity>0) ? (liabilities/equity*100).toFixed(1) : null;
@@ -386,25 +405,15 @@ function renderFsc(summItems, incoItems, year, corpName) {
     + metricCard('자산총계', fmtAmt(assets), null, null)
     + '</div>';
 
-  // 요약재무제표 상세
-  if (summItems.length) {
-    html += '<div class="section-title" style="margin-top:1.5rem">요약재무제표</div>'
-      + '<table class="fs-table" style="margin-bottom:1.5rem"><thead><tr><th>항목</th><th>당기 ('+year+')</th><th>전기 ('+(year-1)+')</th></tr></thead><tbody>'
-      + summItems.map(function(r){
-          return '<tr><td>'+(r.acitNm||'-')+'</td><td>'+(r.thstrmAmt||'-')+'</td><td>'+(r.bfefrmAmt||'-')+'</td></tr>';
-        }).join('')
-      + '</tbody></table>';
-  }
+  if (summItems.length) html += '<div class="section-title" style="margin-top:1.5rem">요약재무제표 <span style="font-weight:400;color:#aaa;font-size:11px">※ 숫자에 마우스를 올리면 정확한 금액이 표시됩니다</span></div>'
+    + '<table class="fs-table" style="margin-bottom:1.5rem"><thead><tr><th>항목</th><th>당기 ('+year+')</th><th>전기 ('+(year-1)+')</th></tr></thead><tbody>'
+    + summItems.map(function(r){return '<tr><td>'+(r.acitNm||'-')+'</td><td>'+fmtTableAmt(r.thstrmAmt)+'</td><td>'+fmtTableAmt(r.bfefrmAmt)+'</td></tr>';}).join('')
+    + '</tbody></table>';
 
-  // 손익계산서 상세
-  if (incoItems.length) {
-    html += '<div class="section-title">손익계산서</div>'
-      + '<table class="fs-table"><thead><tr><th>항목</th><th>당기 ('+year+')</th><th>전기 ('+(year-1)+')</th></tr></thead><tbody>'
-      + incoItems.map(function(r){
-          return '<tr><td>'+(r.acitNm||'-')+'</td><td>'+(r.thstrmAmt||'-')+'</td><td>'+(r.bfefrmAmt||'-')+'</td></tr>';
-        }).join('')
-      + '</tbody></table>';
-  }
+  if (incoItems.length) html += '<div class="section-title">손익계산서</div>'
+    + '<table class="fs-table"><thead><tr><th>항목</th><th>당기 ('+year+')</th><th>전기 ('+(year-1)+')</th></tr></thead><tbody>'
+    + incoItems.map(function(r){return '<tr><td>'+(r.acitNm||'-')+'</td><td>'+fmtTableAmt(r.thstrmAmt)+'</td><td>'+fmtTableAmt(r.bfefrmAmt)+'</td></tr>';}).join('')
+    + '</tbody></table>';
 
   document.getElementById('financial-content').innerHTML = html;
 }
@@ -416,6 +425,32 @@ function fmtAmt(v) {
   if (abs>=1e8)  return sign+Math.round(abs/1e8)+'억';
   if (abs>=1e4)  return sign+Math.round(abs/1e4)+'만';
   return sign+abs.toLocaleString();
+}
+
+// 테이블용 금액 포맷 - 억원 단위 + 원본 툴팁
+function fmtTableAmt(rawStr) {
+  if (!rawStr || rawStr === '-') return '-';
+  var clean = String(rawStr).replace(/,/g, '').trim();
+  var v = parseInt(clean);
+  if (isNaN(v)) return rawStr;
+  var abs = Math.abs(v), sign = v < 0 ? '-' : '';
+  var display, unit;
+  if (abs >= 1e8) {
+    display = sign + (abs / 1e8).toFixed(1) + '억';
+    unit = '억원';
+  } else if (abs >= 1e4) {
+    display = sign + Math.round(abs / 1e4).toLocaleString() + '만';
+    unit = '만원';
+  } else {
+    display = sign + abs.toLocaleString();
+    unit = '원';
+  }
+  // 원본 금액 천단위 콤마
+  var original = (v < 0 ? '-' : '') + abs.toLocaleString() + '원';
+  return '<span title="' + original + '" style="cursor:help">'
+    + display
+    + '<span style="font-size:10px;color:#aaa;margin-left:2px">(' + (abs/1e8).toFixed(2) + '억)</span>'
+    + '</span>';
 }
 
 function metricCard(label, value, badge, badgeType) {
