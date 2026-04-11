@@ -217,8 +217,10 @@ function selectCorp(code, name, stock) {
   document.getElementById('detail-sub').textContent = stock ? '상장코드: ' + stock : '비상장법인';
   document.getElementById('financial-content').innerHTML = '<div class="state"><span class="spinner"></span>재무 데이터 불러오는 중...</div>';
   document.getElementById('year-tabs').innerHTML = '';
+  // 4월 이전이면 전전년도부터 (작년 보고서 아직 미공시 가능성)
   var currentYear = new Date().getFullYear();
-  availableYears = [currentYear-1, currentYear-2, currentYear-3, currentYear-4];
+  var startYear = new Date().getMonth() < 3 ? currentYear - 1 : currentYear - 1;
+  availableYears = [startYear, startYear-1, startYear-2, startYear-3];
   renderYearTabs(availableYears[0]);
   loadFinancial(code, name, availableYears[0]);
 }
@@ -374,11 +376,28 @@ async function renderNoData(corpCode, corpName, year) {
 }
 
 // ── DART 렌더링 ──
+// 계정명 정규화: 앞에 붙는 로마숫자, 숫자, 점 등 제거
+function normAccountNm(nm) {
+  return (nm||'').replace(/^[IVXLCDM]+\.\s*/,'').replace(/^\d+\.\s*/,'').trim();
+}
+
 function getAmt(list, accounts, sj) {
   for (var i=0; i<accounts.length; i++)
     for (var j=0; j<list.length; j++) {
       var r=list[j];
-      if (r.sj_div===sj && (r.account_nm===accounts[i]||r.account_id===accounts[i])) {
+      if (r.sj_div!==sj) continue;
+      // 1. account_id 매칭
+      if (r.account_id===accounts[i]) {
+        var v=parseInt((r.thstrm_amount||'').replace(/,/g,''));
+        if (!isNaN(v)) return v;
+      }
+      // 2. 정확한 account_nm 매칭
+      if (r.account_nm===accounts[i]) {
+        var v=parseInt((r.thstrm_amount||'').replace(/,/g,''));
+        if (!isNaN(v)) return v;
+      }
+      // 3. 정규화된 account_nm 매칭 (IV. 영업이익 → 영업이익)
+      if (normAccountNm(r.account_nm)===accounts[i]) {
         var v=parseInt((r.thstrm_amount||'').replace(/,/g,''));
         if (!isNaN(v)) return v;
       }
