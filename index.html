@@ -217,9 +217,9 @@ function selectCorp(code, name, stock) {
   document.getElementById('detail-sub').textContent = stock ? '상장코드: ' + stock : '비상장법인';
   document.getElementById('financial-content').innerHTML = '<div class="state"><span class="spinner"></span>재무 데이터 불러오는 중...</div>';
   document.getElementById('year-tabs').innerHTML = '';
-  // 4월 이전이면 전전년도부터 (작년 보고서 아직 미공시 가능성)
+  // 1~3월이면 전전년도 기본 (작년 보고서 아직 미공시 가능성), 4월 이후면 작년 기본
   var currentYear = new Date().getFullYear();
-  var startYear = new Date().getMonth() < 3 ? currentYear - 1 : currentYear - 1;
+  var startYear = new Date().getMonth() < 3 ? currentYear - 2 : currentYear - 1;
   availableYears = [startYear, startYear-1, startYear-2, startYear-3];
   renderYearTabs(availableYears[0]);
   loadFinancial(code, name, availableYears[0]);
