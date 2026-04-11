@@ -252,6 +252,19 @@ async function fetchDart(corpCode, year) {
   return { source: 'dart', list: data.list };
 }
 
+// 법인명 정규화: 주식회사, (주), ㈜ 등 제거 후 소문자 비교
+function normCorpName(name) {
+  return name
+    .replace(/주식회사/g, '')
+    .replace(/\(주\)/g, '')
+    .replace(/㈜/g, '')
+    .replace(/\(유\)/g, '')
+    .replace(/유한회사/g, '')
+    .replace(/유한책임회사/g, '')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+}
+
 async function fetchCrno(corpName) {
   var url = 'https://apis.data.go.kr/1160100/service/GetCorpBasicInfoService_V2/getCorpOutline_V2'
     + '?serviceKey=' + encodeURIComponent(FSC_KEY)
@@ -260,10 +273,27 @@ async function fetchCrno(corpName) {
   var items = data.response && data.response.body && data.response.body.items && data.response.body.items.item;
   if (!items) return null;
   if (!Array.isArray(items)) items = [items];
-  // 정확히 일치하는 기업만 사용 - 엉뚱한 기업 crno 방지
-  var exact = items.find(function(i) { return i.corpNm === corpName; });
-  if (!exact) return null;
-  return exact.crno || null;
+
+  var normInput = normCorpName(corpName);
+
+  // 1순위: 정확히 일치
+  var match = items.find(function(i) { return i.corpNm === corpName; });
+
+  // 2순위: 법인명 정규화 후 일치 (주식회사, (주) 등 제거)
+  if (!match) {
+    match = items.find(function(i) { return normCorpName(i.corpNm) === normInput; });
+  }
+
+  // 3순위: 정규화 후 포함 관계 (입력값이 등록명에 포함되거나 반대)
+  if (!match) {
+    match = items.find(function(i) {
+      var normItem = normCorpName(i.corpNm);
+      return normItem.includes(normInput) || normInput.includes(normItem);
+    });
+  }
+
+  if (!match) return null;
+  return match.crno || null;
 }
 
 async function fetchFsc(crno, year) {
