@@ -406,9 +406,13 @@ function getAmt(list, accounts, sj) {
 }
 
 function renderDart(list, year) {
-  var revenue     = getAmt(list,['매출액','수익(매출액)','영업수익'],'IS')||getAmt(list,['매출액','수익(매출액)','영업수익'],'CIS');
-  var opincome    = getAmt(list,['영업이익','영업이익(손실)'],'IS')||getAmt(list,['영업이익','영업이익(손실)'],'CIS');
-  var netincome   = getAmt(list,['당기순이익','당기순이익(손실)'],'IS')||getAmt(list,['당기순이익','당기순이익(손실)'],'CIS');
+  // CIS 우선, 없으면 IS fallback
+  var revenue     = getAmt(list,['매출액','수익(매출액)','영업수익','ifrs-full_Revenue'],'CIS')
+                 || getAmt(list,['매출액','수익(매출액)','영업수익','ifrs-full_Revenue'],'IS');
+  var opincome    = getAmt(list,['영업이익','영업이익(손실)','dart_OperatingIncomeLoss'],'CIS')
+                 || getAmt(list,['영업이익','영업이익(손실)','dart_OperatingIncomeLoss'],'IS');
+  var netincome   = getAmt(list,['당기순이익','당기순이익(손실)','ifrs-full_ProfitLoss'],'CIS')
+                 || getAmt(list,['당기순이익','당기순이익(손실)','ifrs-full_ProfitLoss'],'IS');
   var assets      = getAmt(list,['자산총계'],'BS');
   var liabilities = getAmt(list,['부채총계'],'BS');
   var equity      = getAmt(list,['자본총계'],'BS');
